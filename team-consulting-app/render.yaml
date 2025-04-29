@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: team-consulting-app
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "streamlit run app.py --server.port=$PORT"
+    plan: free
+
+  - type: cron
+    name: data-updater
+    env: python
+    buildCommand: ""
+    startCommand: "python update_runner.py"
+    schedule: "*/20 * * * *"
