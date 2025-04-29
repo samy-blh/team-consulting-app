@@ -48,7 +48,7 @@ if st.button("Lancer le traitement"):
 
         # Exécution
         try:
-            subprocess.run(cmd, check=True)
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
             st.success(f"✅ Fichier généré avec succès : {fichier_sortie.name}")
 
             with open(fichier_sortie, "rb") as f:
@@ -60,5 +60,8 @@ if st.button("Lancer le traitement"):
                 )
 
         except subprocess.CalledProcessError as e:
-            st.error(f"❌ Une erreur est survenue lors du traitement : {e}")
-
+            st.error("❌ Une erreur est survenue lors du traitement.")
+            st.code(f"Commande exécutée : {' '.join(cmd)}")
+            st.code(f"Code de sortie : {e.returncode}")
+            st.code(f"Sortie standard : {e.stdout}")
+            st.code(f"Erreur standard : {e.stderr}")
