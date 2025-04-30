@@ -1,6 +1,6 @@
 import streamlit as st
 import subprocess
-import os
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -8,7 +8,7 @@ st.set_page_config(page_title="Team Consulting App", layout="wide")
 
 st.title("📋 Outil de gestion - Team Consulting")
 
-# 📂 Liste des fichiers dans 'data/'
+# 📁 Dossiers
 data_dir = Path("data")
 scripts_dir = Path("scripts")
 output_dir = Path("output")
@@ -19,18 +19,18 @@ if not liste_fichiers:
     st.error("Aucune liste de techniciens trouvée dans 'data/'.")
     st.stop()
 
-# ✅ Sélection de la liste de techniciens
+# ✅ Sélection de la liste
 liste_choisie = st.selectbox("🧾 Sélectionnez votre liste de techniciens :", liste_fichiers)
 
 # ✅ Choix de l'action
 action = st.selectbox("🔧 Quelle action souhaitez-vous réaliser ?", ["planification", "verification", "terminees"])
 
-# 📅 Date du jour pour les scripts qui en ont besoin
+# 📅 Date du jour pour les scripts
 date_du_jour = datetime.now().strftime("%d/%m/%Y")
 
-# Bouton de validation
+# ✅ Lancer le traitement
 if st.button("Lancer le traitement"):
-    with st.spinner('⏳ Génération du fichier, veuillez patienter...'):
+    with st.spinner("⏳ Traitement en cours..."):
 
         fichier_liste = data_dir / liste_choisie
         nom_liste = Path(liste_choisie).stem
@@ -39,18 +39,19 @@ if st.button("Lancer le traitement"):
 
         fichier_sortie = dossier_output / f"{action}.xlsx"
 
-        # Commande à exécuter
         cmd = ["python", str(scripts_dir / f"{action}.py"), str(fichier_liste), str(fichier_sortie)]
-
-        # Ajouter la date uniquement pour planification et terminees
         if action in ["planification", "terminees"]:
             cmd.append(date_du_jour)
 
-        # Exécution
+        st.code(f"Commande exécutée : {' '.join(cmd)}")
+
         try:
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-            st.success(f"✅ Fichier généré avec succès : {fichier_sortie.name}")
 
+            # Pause pour éviter FileNotFoundError
+            time.sleep(2)
+
+            st.success(f"✅ Fichier généré avec succès : {fichier_sortie.name}")
             with open(fichier_sortie, "rb") as f:
                 st.download_button(
                     label="📥 Télécharger le fichier Excel",
@@ -59,9 +60,11 @@ if st.button("Lancer le traitement"):
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
+            st.code(f"Sortie standard : {result.stdout}")
+            st.code(f"Erreur standard : {result.stderr}")
+
         except subprocess.CalledProcessError as e:
-            st.error("❌ Une erreur est survenue lors du traitement.")
+            st.error("❌ Une erreur est survenue.")
             st.code(f"Commande exécutée : {' '.join(cmd)}")
             st.code(f"Code de sortie : {e.returncode}")
-            st.code(f"Sortie standard : {e.stdout}")
-            st.code(f"Erreur standard : {e.stderr}")
+            st.code(f"Erreur : {e.stderr}")
