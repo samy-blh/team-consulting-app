@@ -5,15 +5,13 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from datetime import datetime, timedelta
-from openpyxl.styles import PatternFill, Border, Side
 from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Border, Side
 from pathlib import Path
 import unicodedata
 
 fichier_excel = sys.argv[1]
 fichier_sortie = sys.argv[2]
-
-date_du_jour = datetime.now().date()
 
 options = Options()
 options.add_argument("--headless")
@@ -27,135 +25,138 @@ interventions_a_suivre = []
 def extraire_interventions(driver, nom, login, onglet_type):
     try:
         driver.find_element(By.LINK_TEXT, onglet_type).click()
-        time.sleep(2)
-        cards = driver.find_elements(By.CLASS_NAME, "intervention")
+        time.sleep(4)
 
-        print(f"📋 {len(cards)} interventions trouvées pour {nom} ({onglet_type})")
+        while True:
+            cards = driver.find_elements(By.CLASS_NAME, "intervention")
+            if not cards:
+                break
 
-        for i in range(len(cards)):
-            try:
-                cards = driver.find_elements(By.CLASS_NAME, "intervention")
-                driver.execute_script("arguments[0].scrollIntoView(true);", cards[i])
-                time.sleep(0.2)
-                cards[i].click()
-                time.sleep(1)
+            total = len(cards)
+            for i in range(total):
+                try:
+                    cards = driver.find_elements(By.CLASS_NAME, "intervention")
+                    card = cards[i]
+                    text = card.text
+                    lines = text.split("\n")
+                    date_line = next((l for l in lines if "Date du RDV" in l), None)
+                    if not date_line:
+                        continue
+                    date_str = date_line.split(":")[1].strip()
+                    if len(date_str) == 13:
+                        date_str += ":00"
+                    rdv_time = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
+                    now = datetime.now()
 
-                rdv_time = None
-                jeton = ""
-                adresse = ""
-                debut_intervention = ""
-
-                labels = driver.find_elements(By.CLASS_NAME, "label")
-                for label in labels:
-                    try:
-                        b = label.find_element(By.TAG_NAME, "b")
-                        label_title = b.text.strip().lower()
-                        texte_complet = label.text.strip()
-
-                        if "date du rdv" in label_title:
-                            parts = texte_complet.split(":")
-                            if len(parts) > 1:
-                                date_str = parts[1].strip()
-                                if len(date_str) == 13:
-                                    date_str += ":00"
-                                rdv_time = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
-                        elif "jeton" in label_title:
-                            parts = texte_complet.split(":")
-                            if len(parts) > 1:
-                                jeton = parts[1].strip()
-                        elif "adresse" in label_title:
-                            try:
-                                adresse = label.find_element(By.TAG_NAME, "a").text.strip()
-                            except:
-                                parts = texte_complet.split(":")
-                                if len(parts) > 1:
-                                    adresse = parts[1].strip()
-                        elif "début" in label_title:
-                            parts = texte_complet.split(":")
-                            if len(parts) > 1:
-                                debut_intervention = parts[1].strip()
-                    except:
+                    if now.date() != rdv_time.date():
                         continue
 
-                now = datetime.now()
-                if not rdv_time or rdv_time.date() != date_du_jour:
+                    card.click()
+                    time.sleep(2)
+
+                    statut = "Non défini"
+                    debut_intervention = ""
+                    jeton_val = ""
+                    adresse_client = ""
+
+                    labels = driver.find_elements(By.CLASS_NAME, "label")
+                    for label in labels:
+                        try:
+                            b = label.find_element(By.TAG_NAME, "b")
+                            label_title = b.text.strip().lower()
+                            texte_complet = label.text.strip()
+
+                            if "début de l'intervention" in label_title:
+                                parts = texte_complet.split(":")
+                                if len(parts) > 1:
+                                    debut_intervention = parts[1].strip()
+                                    statut = f"Démarrée à {debut_intervention}"
+
+                            elif "jeton" in label_title:
+                                parts = texte_complet.split(":")
+                                if len(parts) > 1:
+                                    jeton_val = parts[1].strip()
+
+                            elif "adresse" in label_title:
+                                try:
+                                    adresse_client = label.find_element(By.TAG_NAME, "a").text.strip()
+                                except:
+                                    adresse_client = texte_complet.split(":")[1].strip()
+
+                        except:
+                            continue
+
+                    if "Démarrée à" not in statut:
+                        if now > rdv_time + timedelta(minutes=10):
+                            statut = "Non démarrée - En retard"
+                        else:
+                            statut = "À venir - Non démarrée"
+
+                    interventions_a_suivre.append({
+                        "technicien": nom,
+                        "login": login,
+                        "jeton": jeton_val,
+                        "adresse": adresse_client,
+                        "rdv": rdv_time.strftime("%Y-%m-%d %H:%M"),
+                        "statut": statut,
+                        "heure_actuelle": now.strftime("%Y-%m-%d %H:%M"),
+                        "type": onglet_type
+                    })
+
                     driver.back()
-                    time.sleep(1)
+                    time.sleep(2)
+
+                except Exception as e:
+                    print(f"Erreur sur une intervention : {e}")
                     continue
+            break
 
-                if debut_intervention:
-                    statut = f"Démarrée à {debut_intervention}"
-                else:
-                    if now > rdv_time + timedelta(minutes=10):
-                        statut = "Non démarrée - En retard"
-                    else:
-                        statut = "À venir - Non démarrée"
-
-                interventions_a_suivre.append({
-                    "technicien": nom,
-                    "login": login,
-                    "jeton": jeton,
-                    "adresse": adresse,
-                    "rdv": rdv_time.strftime("%Y-%m-%d %H:%M"),
-                    "statut": statut,
-                    "heure_actuelle": now.strftime("%Y-%m-%d %H:%M"),
-                    "type": onglet_type
-                })
-
-                driver.back()
-                time.sleep(1)
-
-            except Exception as e:
-                print(f"⚠️ Erreur intervention {i+1} pour {nom} : {e}")
-                try:
-                    driver.back()
-                    time.sleep(1)
-                except:
-                    pass
-                continue
     except Exception as e:
-        print(f"❌ Erreur onglet {onglet_type} ➜ {e}")
+        print(f"Erreur pour {nom} dans l’onglet {onglet_type} : {e}")
 
 for index, row in df.iterrows():
     nom = row["nom"]
     login = str(row["login"])
     password = str(row["password"])
 
-    print(f"🔐 Connexion à la grille de {nom}...")
+    print(f"Connexion pour {nom}...")
 
-    try:
-        driver = webdriver.Chrome(options=options)
-        driver.get("https://aboracco.pub.app.ftth.iliad.fr/")
-        time.sleep(2)
+    driver = webdriver.Chrome(options=options)
+    driver.get("https://aboracco.pub.app.ftth.iliad.fr/")
+    time.sleep(3)
 
-        inputs = driver.find_elements(By.TAG_NAME, "input")
-        inputs[0].send_keys(login)
-        inputs[1].send_keys(password)
-        driver.find_element(By.XPATH, "//button[contains(text(), 'Connexion')]").click()
-        time.sleep(3)
+    inputs = driver.find_elements(By.TAG_NAME, "input")
+    inputs[0].send_keys(login)
+    inputs[1].send_keys(password)
 
-        extraire_interventions(driver, nom, login, "Production")
-        extraire_interventions(driver, nom, login, "Post-Production / SAV")
+    time.sleep(1)
+    bouton_connexion = driver.find_element(By.XPATH, "//button[contains(text(), 'Connexion')]")
+    bouton_connexion.click()
+    time.sleep(4)
 
-        driver.quit()
+    extraire_interventions(driver, nom, login, "Production")
+    extraire_interventions(driver, nom, login, "Post-Production / SAV")
 
-    except Exception as e:
-        print(f"🚫 Erreur technicien {nom} : {e}")
-        try:
-            driver.quit()
-        except:
-            pass
-        continue
+    driver.quit()
 
-# 📤 Génération Excel
 if interventions_a_suivre:
     Path(fichier_sortie).parent.mkdir(parents=True, exist_ok=True)
     df_result = pd.DataFrame(interventions_a_suivre)
     df_result.to_excel(fichier_sortie, index=False)
 
-    # Mise en forme (orange si en retard)
     wb = load_workbook(fichier_sortie)
     ws = wb.active
+
+    for col in ws.columns:
+        max_length = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            try:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            except:
+                pass
+        ws.column_dimensions[col_letter].width = max_length + 2
 
     fill_orange = PatternFill(start_color="FFA07A", end_color="FFA07A", fill_type="solid")
     border = Border(
@@ -175,24 +176,15 @@ if interventions_a_suivre:
             return ""
         return unicodedata.normalize('NFKD', str(s)).encode('ASCII', 'ignore').decode('utf-8').lower()
 
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        for cell in row:
-            cell.border = border
-
-        statut_cell = row[statut_col - 1]
-        if "non demarree - en retard" in normalize(statut_cell.value):
+    if statut_col:
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            statut_cell = row[statut_col - 1]
+            apply_fill = False
+            if "non demarree - en retard" in normalize(statut_cell.value):
+                apply_fill = True
             for cell in row:
-                cell.fill = fill_orange
-
-    for col in ws.columns:
-        max_length = 0
-        col_letter = col[0].column_letter
-        for cell in col:
-            try:
-                if cell.value:
-                    max_length = max(max_length, len(str(cell.value)))
-            except:
-                pass
-        ws.column_dimensions[col_letter].width = max_length + 2
+                cell.border = border
+                if apply_fill:
+                    cell.fill = fill_orange
 
     wb.save(fichier_sortie)
